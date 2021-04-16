@@ -79,7 +79,7 @@ class TestApiClient(unittest.TestCase):
         results = self.client.batch_lookup(self.variants_to_lookup, ref_genome='hg19',
                                            params={'add-all-data': 1, 'expand-pubmed-articles': 0},
                                            raise_exceptions=True)
-        self.assertEqual(len(results), len(self.variants_to_lookup))
+        self.assertEqual(len(list(results)), len(self.variants_to_lookup))
         self.client.session.close()
 
 
