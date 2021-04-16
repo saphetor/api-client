@@ -17,6 +17,8 @@ import asyncio
 import concurrent.futures
 import re
 import os
+from itertools import chain
+
 import requests
 from requests.exceptions import HTTPError, Timeout, ConnectionError, RequestException
 
@@ -167,14 +169,13 @@ class VarSomeAPIClient(VarSomeAPIClientBase):
         :return: list of dictionaries with annotations per variant refer to https://api.varsome.com/lookup/schema
         for dictionary properties
         """
-        results = []
 
         @asyncio.coroutine
-        def batch(executor):
-            loop = asyncio.get_event_loop()
+        def batch(batch_executor):
+            batch_loop = asyncio.get_event_loop()
             futures = [
-                loop.run_in_executor(
-                    executor,
+                batch_loop.run_in_executor(
+                    batch_executor,
                     self.post,
                     self.batch_lookup_path % ref_genome, params, {'variants': queries}, raise_exceptions
                 )
@@ -182,12 +183,13 @@ class VarSomeAPIClient(VarSomeAPIClientBase):
                                                                                            self.max_variants_per_batch)]
             ]
             responses = yield from asyncio.gather(*futures)
-            for response in responses:
-                results.extend(response)
+            return responses
         # Create a limited thread pool.
         executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max_threads,
         )
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(batch(executor))
-        return results
+        loop = asyncio.new_event_loop()
+        try:
+            return chain.from_iterable(loop.run_until_complete(batch(executor)))
+        finally:
+            loop.close()

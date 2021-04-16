@@ -41,35 +41,35 @@ class VCFAnnotator(VarSomeAPIClient):
         if self.max_variants_per_batch > 3000 and self.max_threads > 1:
             self.logger.warning("Having more than 1 thread with more than 3000 variants per batch may not be optimal")
 
-    def _process_request(self, input_batch):
+    def _process_request(self, input_batch, vcf_writer):
         start = time.time()
         api_results = self.batch_lookup(list(input_batch.keys()), params=self.get_parameters,
                                         ref_genome=self.ref_genome, max_threads=self.max_threads)
         duration = time.time() - start
         self.logger.info('Annotated %s variants in %s' % (len(input_batch), duration))
         self.logger.info('Writing to output vcf file')
-        for i, requested_variant in enumerate(input_batch.keys()):
+        input_batch_variants = list(input_batch.keys())
+        for i, results in enumerate(api_results):
             try:
-                results = api_results[i]
-                record = input_batch[requested_variant]
+                record = input_batch[input_batch_variants[i]]
                 if results:
                     if 'filtered_out' in results:
-                        self.logger.info(results['filtered_out'])
+                        self.logger.info("%s: %s" % (input_batch_variants[i], results['filtered_out']))
                         self.filtered_out_variants += 1
                         continue
                     if 'error' in results:
-                        self.logger.error(results['error'])
+                        self.logger.error("%s: %s" % (input_batch_variants[i], results['error']))
                         self.variants_with_errors += 1
                         continue
-                    if 'variant_id' in results:
+                    if results.get('variant_id'):
                         variant_result = AnnotatedVariant(**results)
                         record = self.annotate_record(record, variant_result)
-                        self.vcf_writer.write_record(record)
+                        vcf_writer.write_record(record)
                     else:
-                        self.logger.error(results)
+                        self.logger.error("%s: %s" % (input_batch_variants[i], results))
                         self.variants_with_errors += 1
             except Exception as e:
-                self.logger.error(e)
+                self.logger.error(e, results)
                 self.variants_with_errors += 1
                 pass  # log an exception..
 
@@ -85,6 +85,10 @@ class VCFAnnotator(VarSomeAPIClient):
         record.INFO['gene'] = ",".join(variant_result.genes)
         record.INFO['gnomad_exomes_AF'] = variant_result.gnomad_exomes_af
         record.INFO['gnomad_genomes_AF'] = variant_result.gnomad_genomes_af
+        acmg_verdict = variant_result.acmg_verdict
+        if acmg_verdict is not None:
+            acmg_verdict = acmg_verdict.replace(" ", "_")
+        record.INFO['acmg_verdict'] = acmg_verdict
         record.ALT = variant_result.alt
         record.POS = variant_result.pos
         record.ID = ";".join(variant_result.rs_ids) or "."
@@ -104,6 +108,7 @@ class VCFAnnotator(VarSomeAPIClient):
                                                      'GnomAD exomes allele frequency value', None, None)
         vcf_template.infos['gnomad_genomes_AF'] = _Info('gnomad_genomes_AF', '.', 'Float',
                                                       'GnomAD genomes allele frequency value', None, None)
+        vcf_template.infos['acmg_verdict'] = _Info('acmg_verdict', '.', 'String', 'ACMG Classification Verdict', None, None)
 
     def annotate(self, input_vcf_file, output_vcf_file=None, template=None, **kwargs):
         """
@@ -123,7 +128,7 @@ class VCFAnnotator(VarSomeAPIClient):
         vcf_template = vcf_reader if template is None else vcf.Reader(filename=template, strict_whitespace=kwargs.get(
             'strict_whitespace', True))
         self.add_vcf_header_info(vcf_template)
-        self.vcf_writer = vcf.Writer(open(output_vcf_file, 'w'), vcf_template)
+        vcf_writer = vcf.Writer(open(output_vcf_file, 'w'), vcf_template)
         input_batch = OrderedDict()
         # this will keep the request queue large enough so that parallel requests will not stop executing
         batch_limit = self.max_variants_per_batch * self.max_threads * 2
@@ -134,13 +139,13 @@ class VCFAnnotator(VarSomeAPIClient):
                 self.total_varialts += 1
             if len(input_batch) < batch_limit:
                 continue
-            self._process_request(input_batch)
+            self._process_request(input_batch, vcf_writer)
             # reset input batch
             input_batch = OrderedDict()
             # we may have some variants remaining if input batch is less than batch size
         if len(input_batch) > 0:
-            self._process_request(input_batch)
-        self.vcf_writer.close()
+            self._process_request(input_batch, vcf_writer)
+        vcf_writer.close()
         self.logger.info("Annotating %s variants in %s. "
                          "Filtered out %s. "
                          "Errors %s" % (self.total_varialts, time.time() - annotations_start,
