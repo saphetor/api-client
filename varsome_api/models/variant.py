@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .fields import DictField
 from .elements import *
 
 __author__ = "ckopanos"
@@ -136,3 +135,13 @@ class AnnotatedVariant(models.Base):
         """
         an = [gnomad_genomes.an for gnomad_genomes in self.gnomad_genomes]
         return an[0] if an else None
+
+    @property
+    def acmg_verdict(self):
+        """
+        :return: the acmg verdict for the variant
+        """
+        acmg_annotation = self.acmg_annotation
+        if acmg_annotation is not None and acmg_annotation.verdict is not None:
+            return acmg_annotation.verdict.ACMG_rules.verdict
+        return None

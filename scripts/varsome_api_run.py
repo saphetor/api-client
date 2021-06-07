@@ -72,9 +72,10 @@ def annotate_variant(argv):
             if api_key is None:
                 sys.exit("You need to pass an api key to perform batch requests")
             result = api.batch_lookup(query, params=request_parameters, ref_genome=ref_genome)
+            result = list(result)
         if output_file:
-            write_f = open(output_file, 'w')
-            json.dump(result, write_f, indent=4, sort_keys=True)
+            with open(output_file, 'w') as fp:
+                json.dump(result, fp, indent=4, sort_keys=True)
         else:
             sys.stdout.write(json.dumps(result, indent=4, sort_keys=True) if result else "No result")
             sys.stdout.write("\n")
@@ -85,9 +86,6 @@ def annotate_variant(argv):
         if len(variants) > 1000:
             sys.stdout.write('Too many variants.. Consider using annotate_vcf instead\n')
             sys.stdout.flush()
-        write_f = None
-        if output_file:
-            write_f = open(output_file, 'w')
         try:
             if api_key is None:
                 sys.stdout.write('Without an API key, variants will be annotated one a time, '
@@ -99,15 +97,18 @@ def annotate_variant(argv):
                     if not result:
                         result = {'error': 'Could not fetch annotations for %s' % variant}
                     results.append(result)
-                if write_f is not None:
-                    json.dump(results, write_f, indent=4, sort_keys=True)
+                if output_file:
+                    with open(output_file, 'w') as fp:
+                        json.dump(results, fp, indent=4, sort_keys=True)
                 else:
                     sys.stdout.write(json.dumps(result, indent=4, sort_keys=True) if result else "No result")
                     sys.stdout.write("\n")
             else:
                 result = api.batch_lookup(variants, params=request_parameters, ref_genome=ref_genome)
-                if write_f is not None:
-                    json.dump(result, write_f, indent=4, sort_keys=True)
+                result = list(result)
+                if output_file:
+                    with open(output_file, 'w') as fp:
+                        json.dump(result, fp, indent=4, sort_keys=True)
                 else:
                     sys.stdout.write(json.dumps(result, indent=4, sort_keys=True) if result else "No result")
                     sys.stdout.write("\n")
@@ -115,8 +116,6 @@ def annotate_variant(argv):
             # several things might occur. This is to broad, but lets not keep open file handles
             sys.stderr.write(str(e))
             sys.stderr.write("\n")
-            if write_f is not None:
-                write_f.close()
             sys.exit(1)
     else:
         sys.stderr.write('No variants found in file %s\n' % input_file)
